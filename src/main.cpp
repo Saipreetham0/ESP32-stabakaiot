@@ -18,7 +18,7 @@
 #include <LcdMenu.h>
 #include <OneButton.h>
 #include <EEPROM.h>
-
+// #include <esp_task_wdt.h>
 // Provide the token generation process info.
 #include "addons/TokenHelper.h"
 // Provide the RTDB payload printing info and other helper functions.
@@ -27,7 +27,9 @@
 // Firmware path and OTA
 #define FIRMWARE_PATH "production/firmware.bin"
 // #define FIRMWARE_PATH "test/firmware.bin"
-const char *firmwareVersion = "1.0.4";
+const char *firmwareVersion = "1.0.5";
+
+#define FIREBASE_USE_PSRAM
 
 // Firebase Data Path
 
@@ -36,6 +38,10 @@ const char *firmwareVersion = "1.0.4";
 
 // Global variables
 // TEMP SET POINTS
+#define WATCHDOG_TIMEOUT_SECONDS 10
+#define INTERNET_CHECK_INTERVAL 60000                  // Check internet connectivity every 60 seconds
+#define INTERNET_CHECK_SERVER "https://www.google.com" // Change to a reliable server
+
 int tempSetPointOff;
 int tempSetPointOn;
 
@@ -219,10 +225,10 @@ int CO2;
 int lux;
 
 // WiFi and Firebase credentials
-// #define WIFI_SSID "KSP"
-// #define WIFI_PASSWORD "9550421866"
-#define WIFI_SSID "StabakaBiosciences"
-#define WIFI_PASSWORD "Stabaka24"
+#define WIFI_SSID "KSP"
+#define WIFI_PASSWORD "9550421866"
+// #define WIFI_SSID "StabakaBiosciences"
+// #define WIFI_PASSWORD "Stabaka24"
 // #define WIFI_SSID "STABAKAIOT"
 // #define WIFI_PASSWORD "STABAKAIOT@1234"
 
@@ -402,7 +408,7 @@ void initWiFi()
     menu.lcd->setCursor(0, 0);
     menu.lcd->print("Connecting to WiFi...");
   }
-  Serial.print("Connected to");
+  Serial.print("Connected to ");
   Serial.println(WIFI_SSID);
   menu.lcd->clear();
   menu.lcd->setCursor(0, 0);
@@ -450,7 +456,7 @@ void displaySensorValues()
     menu.lcd->print("offline");
   }
 
-  delay(3000);
+  delay(1000);
 }
 
 void uploadData()
@@ -518,7 +524,7 @@ void SensorDataUpload()
       Serial.println(timestamp1);
       // String formattedTimestamp = Firebase.timestamp(timestamp);
 
-      String documentPath = "device1/" + String(timestamp);
+      String documentPath = "device15/" + String(timestamp);
 
       content.set("fields/temp/doubleValue", temperature);
       content.set("fields/humidity/doubleValue", humidity);
@@ -539,60 +545,62 @@ void SensorDataUpload()
   }
 }
 
-void keepWiFiAlive(void *parameter)
+bool checkInternet()
 {
-
-  Serial.println("WiFI Task");
-
-  unsigned long previousMillis1 = 0;
-  const long interval1 = 5000; // Interval for reconnection attempt (5 seconds)
-
-  for (;;)
-  {
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      Serial.println("WiFI still connected.");
-      vTaskDelay(10000 / portTICK_PERIOD_MS);
-      continue;
-    }
-
-    // Serial.println("WiFi Connecting");
-    // WiFi.mode(WIFI_STA);
-    // WiFi.begin(WIFI_NETWORK, WIFI_PASSWORD);
-
-    // unsigned long startAttemptTime = millis();
-
-    // // Keep looping while we're not connected and haven't reached the timeout
-    // while (WiFi.status() != WL_CONNECTED &&
-    //        millis() - startAttemptTime < WIFI_TIMEOUT_MS)
-    // {
-    // }
-
-    // When we couldn't make a WiFi connection (or the timeout expired)
-    // sleep for a while and then retry.
-    // if (WiFi.status() != WL_CONNECTED)
-    // {
-    //   Serial.println("[WIFI] FAILED");
-    //   vTaskDelay(WIFI_TIMEOUT_MS / portTICK_PERIOD_MS);
-    //   continue;
-    // }
-
-    while (WiFi.status() == WL_CONNECTED)
-    {
-      unsigned long currentMillis1 = millis();
-      if (currentMillis1 - previousMillis1 >= interval1)
-      {
-        Serial.println("Reconnecting to WiFi...");
-        WiFi.disconnect();
-        WiFi.reconnect();
-        previousMillis1 = currentMillis1;
-      }
-      vTaskDelay(1000 / portTICK_PERIOD_MS); // Check for reconnection every second
-    }
-
-    Serial.println("[WIFI] Connected: " + WiFi.localIP());
-  }
+  HTTPClient http;
+  http.begin(INTERNET_CHECK_SERVER);
+  int httpCode = http.GET();
+  http.end();
+  return httpCode > 0; // If HTTP response code is greater than 0, internet is reachable
 }
+
+void handleInternetError()
+{
+  // Perform error recovery actions here
+  Serial.println("Error: Internet connection is down. Restarting...");
+  delay(1000);   // Delay to allow Serial data to be sent
+  ESP.restart(); // Restart the ESP32
+}
+
+// void keepWiFiAlive(void *parameter)
+// {
+
+//   Serial.println("WiFI Task");
+
+//   unsigned long previousMillis1 = 0;
+//   const long interval1 = 5000; // Interval for reconnection attempt (5 seconds)
+
+//   for (;;)
+//   {
+//     if (WiFi.status() == WL_CONNECTED)
+//     {
+//       Serial.println("WiFI still connected.");
+//       vTaskDelay(10000 / portTICK_PERIOD_MS);
+//       continue;
+//     }
+
+//     while (WiFi.status() == WL_CONNECTED)
+//     {
+//       unsigned long currentMillis1 = millis();
+//       if (currentMillis1 - previousMillis1 >= interval1)
+//       {
+//         Serial.println("Reconnecting to WiFi...");
+//         WiFi.disconnect();
+//         WiFi.reconnect();
+//         previousMillis1 = currentMillis1;
+//       }
+//       vTaskDelay(1000 / portTICK_PERIOD_MS); // Check for reconnection every second
+//     }
+
+//     Serial.println("[WIFI] Connected: " + WiFi.localIP());
+
+//     if (!checkInternet())
+//     {
+//       // Internet connection is down, handle the error
+//       handleInternetError();
+//     }
+//   }
+// }
 
 void taskEncoder(void *pvParameters)
 {
@@ -1047,6 +1055,8 @@ void setup()
   Serial.println("Developed By KSP ELECTRONICS");
   Serial.println("Version:" + String(firmwareVersion));
 
+
+
   // LCD Menu
   menu.setupLcdWithMenu(0x27, mainMenu);
   menu.lcd->clear();
@@ -1109,6 +1119,22 @@ void setup()
 
   Firebase.begin(&configF, &auth);
   Firebase.reconnectWiFi(true);
+// Optional, set number of error retry
+Firebase.RTDB.setMaxRetry(&fbdo, 3);
+
+// Optional, set number of error resumable queues
+Firebase.RTDB.setMaxErrorQueue(&fbdo, 30);
+
+// Optional, use classic HTTP GET and POST requests.
+// This option allows get and delete functions (PUT and DELETE HTTP requests) works for
+// device connected behind the Firewall that allows only GET and POST requests.
+Firebase.RTDB.enableClassicRequest(&fbdo, true);
+  // Since v4.4.x, BearSSL engine was used, the SSL buffer need to be set.
+  // Large data transmission may require larger RX buffer, otherwise connection issue or data read time out can be occurred.
+  fbdo.setBSSLBufferSize(4096 /* Rx buffer size in bytes from 512 - 16384 */, 1024 /* Tx buffer size in bytes from 512 - 16384 */);
+
+  // Limit the size of response payload to be collected in FirebaseData
+  fbdo.setResponseSize(2048);
 
   // ONE BUTTON
   button.attachClick(handleButtonClick);
@@ -1149,20 +1175,22 @@ void setup()
 
   SensorDataUpload();
 
+  Firebase.reconnectWiFi(true);
+
   // timer.setInterval(3000, uploadData);
   timer.setInterval(900000, SensorDataUpload);
   timer.setInterval(3000, CheckOtaUpdate);
   // timer.setInterval(60000, SensorDataUpload);
   // timer.setInterval(3000, getRealTimeSensorsData);
 
-  xTaskCreatePinnedToCore(
-      keepWiFiAlive, /* Task function. */
-      "WiFiTask",    /* name of task. */
-      10000,         /* Stack size of task */
-      NULL,          /* parameter of the task */
-      1,             /* priority of the task */
-      NULL,          /* Task handle to keep track of created task */
-      0);            /* pin task to core 0 */
+  // xTaskCreatePinnedToCore(
+  //     keepWiFiAlive, /* Task function. */
+  //     "WiFiTask",    /* name of task. */
+  //     10000,         /* Stack size of task */
+  //     NULL,          /* parameter of the task */
+  //     1,             /* priority of the task */
+  //     NULL,          /* Task handle to keep track of created task */
+  //     0);            /* pin task to core 0 */
 
   xTaskCreatePinnedToCore(
       taskEncoder,   /* Task function. */
@@ -1185,22 +1213,7 @@ void setup()
 
 void loop()
 {
-
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.println("WiFi connection lost. Attempting to connect to another network...");
-    // wifiMulti
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      Serial.println("Connected to WiFi!");
-      Serial.print("IP Address: ");
-      Serial.println(WiFi.localIP());
-    }
-    else
-    {
-      Serial.println("Failed to connect to any WiFi network!");
-    }
-  }
+  // esp_task_wdt_reset();
 
   unsigned long currentMillis = millis(); // Get current time
 
@@ -1231,6 +1244,8 @@ void loop()
       Firebase.refreshToken(&configF);
       Serial.println("Refresh token");
     }
+
+    // Firebase.setTimestamp(firebaseData, "/esp32_status");
 
     if (dataChanged)
     {
