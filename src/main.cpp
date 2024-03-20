@@ -27,7 +27,7 @@
 // Firmware path and OTA
 #define FIRMWARE_PATH "production/firmware.bin"
 // #define FIRMWARE_PATH "test/firmware.bin"
-const char *firmwareVersion = "1.0.5";
+const char *firmwareVersion = "1.0.6";
 
 #define FIREBASE_USE_PSRAM
 
@@ -38,9 +38,9 @@ const char *firmwareVersion = "1.0.5";
 
 // Global variables
 // TEMP SET POINTS
-#define WATCHDOG_TIMEOUT_SECONDS 10
-#define INTERNET_CHECK_INTERVAL 60000                  // Check internet connectivity every 60 seconds
-#define INTERNET_CHECK_SERVER "https://www.google.com" // Change to a reliable server
+// #define WATCHDOG_TIMEOUT_SECONDS 10
+// #define INTERNET_CHECK_INTERVAL 60000                  // Check internet connectivity every 60 seconds
+// #define INTERNET_CHECK_SERVER "https://www.google.com" // Change to a reliable server
 
 int tempSetPointOff;
 int tempSetPointOn;
@@ -89,6 +89,7 @@ char timestamp[20];
 unsigned long previousMillis = 0; // Variable to store the last time the timestamp was updated
 const long interval = 1000;       // Interval in milliseconds to update the timestamp
 
+unsigned long sendDataPrevMillis = 0;
 // unsigned long previousMillis1 = 0;
 // unsigned long interval1 = 30000;
 
@@ -144,7 +145,7 @@ volatile bool dataChanged = false;
 
 volatile bool sensorsData = true;
 
-volatile bool DeviceStatus = false;
+// volatile bool DeviceStatus = false;
 
 void handleButtonClick()
 {
@@ -415,7 +416,7 @@ void initWiFi()
   menu.lcd->print("Connected to ");
   menu.lcd->setCursor(0, 1);
   menu.lcd->println(WIFI_SSID);
-  DeviceStatus = false;
+  // DeviceStatus = false;
 
   delay(3000);
 }
@@ -450,13 +451,13 @@ void displaySensorValues()
   menu.lcd->print("Time: ");
   menu.lcd->print(timestamp);
 
-  if (DeviceStatus)
+  if (WiFi.status() != WL_CONNECTED)
   {
     menu.lcd->setCursor(13, 3);
     menu.lcd->print("offline");
   }
 
-  delay(1000);
+  delay(100);
 }
 
 void uploadData()
@@ -473,21 +474,24 @@ void getRealTimeSensorsData()
   CO2 = myMHZ19.getCO2();
   lux = lightMeter.readLightLevel();
 }
+
 void SensorDataUpload()
 {
 
   if (WiFi.status() == WL_CONNECTED)
   {
 
-    if (Firebase.ready())
+    if (Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0))
     {
+
+      sendDataPrevMillis = millis();
       Serial.print("Getting Sensor Data");
 
       // Fetch sensor data
       // sensors.requestTemperatures();
       temperature = bme.readTemperature();
       humidity = bme.readHumidity();
-      CO2 = myMHZ19.getCO2();
+      // CO2 = myMHZ19.getCO2();
       lux = lightMeter.readLightLevel();
       // displaySensorValues();
 
@@ -545,22 +549,13 @@ void SensorDataUpload()
   }
 }
 
-bool checkInternet()
-{
-  HTTPClient http;
-  http.begin(INTERNET_CHECK_SERVER);
-  int httpCode = http.GET();
-  http.end();
-  return httpCode > 0; // If HTTP response code is greater than 0, internet is reachable
-}
-
-void handleInternetError()
-{
-  // Perform error recovery actions here
-  Serial.println("Error: Internet connection is down. Restarting...");
-  delay(1000);   // Delay to allow Serial data to be sent
-  ESP.restart(); // Restart the ESP32
-}
+// void handleInternetError()
+// {
+//   // Perform error recovery actions here
+//   Serial.println("Error: Internet connection is down. Restarting...");
+//   delay(1000);   // Delay to allow Serial data to be sent
+//   ESP.restart(); // Restart the ESP32
+// }
 
 // void keepWiFiAlive(void *parameter)
 // {
@@ -990,54 +985,54 @@ void OfflineSetPointsRelayFunction()
   }
 }
 
-void CheckOtaUpdate()
-{
-  // if (Firebase.ready() && !taskCompleted)
+// void CheckOtaUpdate()
+// {
 
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    if (Firebase.ready())
-    {
-      // taskCompleted = true;
+//   if (WiFi.status() == WL_CONNECTED)
+//   {
+//     if (Firebase.ready())
+//     {
+//       // sendDataPrevMillis = millis();
+//       // taskCompleted = true;
 
-      // If you want to get download url to use with your own OTA update process using core update library,
-      // see Metadata.ino example
+//       // If you want to get download url to use with your own OTA update process using core update library,
+//       // see Metadata.ino example
 
-      // Serial.println("\nChecking for new firmware update available...\n");
-      menu.hide();
+//       // Serial.println("\nChecking for new firmware update available...\n");
+//       menu.hide();
 
-      // In ESP8266, this function will allocate 16k+ memory for internal SSL client.
-      if (!Firebase.Storage.downloadOTA(
-              &fbdo, STORAGE_BUCKET_ID /* Firebase Storage bucket id */,
-              FIRMWARE_PATH /* path of firmware file stored in the bucket */,
-              fcsDownloadCallback /* callback function */
-              ))
-      {
-        Serial.println(fbdo.errorReason());
-      }
-      else
-      {
-        menu.hide();
-        menu.lcd->clear();
-        menu.lcd->setCursor(0, 0);
-        menu.lcd->print("Restarting...");
-        menu.lcd->setCursor(0, 1);
-        menu.lcd->print("Device");
-        delay(500);
-        // Delete the file after update
-        Serial.printf("Delete file... %s\n", Firebase.Storage.deleteFile(&fbdo, STORAGE_BUCKET_ID, FIRMWARE_PATH) ? "ok" : fbdo.errorReason().c_str());
+//       // In ESP8266, this function will allocate 16k+ memory for internal SSL client.
+//       if (!Firebase.Storage.downloadOTA(
+//               &fbdo, STORAGE_BUCKET_ID /* Firebase Storage bucket id */,
+//               FIRMWARE_PATH /* path of firmware file stored in the bucket */,
+//               fcsDownloadCallback /* callback function */
+//               ))
+//       {
+//         Serial.println(fbdo.errorReason());
+//       }
+//       else
+//       {
+//         menu.hide();
+//         menu.lcd->clear();
+//         menu.lcd->setCursor(0, 0);
+//         menu.lcd->print("Restarting...");
+//         menu.lcd->setCursor(0, 1);
+//         menu.lcd->print("Device");
+//         delay(500);
+//         // Delete the file after update
+//         Serial.printf("Delete file... %s\n", Firebase.Storage.deleteFile(&fbdo, STORAGE_BUCKET_ID, FIRMWARE_PATH) ? "ok" : fbdo.errorReason().c_str());
 
-        Serial.println("Restarting...\n\n");
-        delay(2000);
-        ESP.restart();
-      }
-    }
-  }
-  else
-  {
-    Serial.println("OTA Offline");
-  }
-}
+//         Serial.println("Restarting...\n\n");
+//         delay(2000);
+//         ESP.restart();
+//       }
+//     }
+//   }
+//   else
+//   {
+//     Serial.println("OTA Offline");
+//   }
+// }
 
 void updateTime()
 {
@@ -1054,8 +1049,6 @@ void setup()
   Serial.begin(9600);
   Serial.println("Developed By KSP ELECTRONICS");
   Serial.println("Version:" + String(firmwareVersion));
-
-
 
   // LCD Menu
   menu.setupLcdWithMenu(0x27, mainMenu);
@@ -1119,16 +1112,16 @@ void setup()
 
   Firebase.begin(&configF, &auth);
   Firebase.reconnectWiFi(true);
-// Optional, set number of error retry
-Firebase.RTDB.setMaxRetry(&fbdo, 3);
+  // Optional, set number of error retry
+  Firebase.RTDB.setMaxRetry(&fbdo, 3);
 
-// Optional, set number of error resumable queues
-Firebase.RTDB.setMaxErrorQueue(&fbdo, 30);
+  // Optional, set number of error resumable queues
+  Firebase.RTDB.setMaxErrorQueue(&fbdo, 30);
 
-// Optional, use classic HTTP GET and POST requests.
-// This option allows get and delete functions (PUT and DELETE HTTP requests) works for
-// device connected behind the Firewall that allows only GET and POST requests.
-Firebase.RTDB.enableClassicRequest(&fbdo, true);
+  // Optional, use classic HTTP GET and POST requests.
+  // This option allows get and delete functions (PUT and DELETE HTTP requests) works for
+  // device connected behind the Firewall that allows only GET and POST requests.
+  Firebase.RTDB.enableClassicRequest(&fbdo, true);
   // Since v4.4.x, BearSSL engine was used, the SSL buffer need to be set.
   // Large data transmission may require larger RX buffer, otherwise connection issue or data read time out can be occurred.
   fbdo.setBSSLBufferSize(4096 /* Rx buffer size in bytes from 512 - 16384 */, 1024 /* Tx buffer size in bytes from 512 - 16384 */);
@@ -1177,9 +1170,11 @@ Firebase.RTDB.enableClassicRequest(&fbdo, true);
 
   Firebase.reconnectWiFi(true);
 
+  fbdo.keepAlive(5 /* tcp KeepAlive idle 5 seconds */, 5 /* tcp KeeAalive interval 5 seconds */, 1 /* tcp KeepAlive count 1 */);
+
   // timer.setInterval(3000, uploadData);
   timer.setInterval(900000, SensorDataUpload);
-  timer.setInterval(3000, CheckOtaUpdate);
+  // timer.setInterval(3000, CheckOtaUpdate);
   // timer.setInterval(60000, SensorDataUpload);
   // timer.setInterval(3000, getRealTimeSensorsData);
 
@@ -1230,7 +1225,7 @@ void loop()
   // Check if WiFi is connected
   if (WiFi.status() == WL_CONNECTED)
   {
-    DeviceStatus = false;
+    // DeviceStatus = false;
     // Your existing loop code for when WiFi is connected
     // This part will run when the device is connected to WiFi
 
@@ -1270,7 +1265,7 @@ void loop()
   else
   {
     Serial.println("Offline Mode");
-    DeviceStatus = true;
+    // DeviceStatus = true;
     useEEPROMSetPoints(); // Use EEPROM values instead
     getRealTimeSensorsData();
     OfflineSetPointsRelayFunction();
@@ -1308,8 +1303,9 @@ void updateSetPoint(const char *setPointType, const char *setPointName, char *va
   // Check if the value is not null and not zero
   if (value != nullptr && atof(value) != 0)
   {
-    if (Firebase.ready())
+    if (Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0))
     {
+      sendDataPrevMillis = millis();
       FirebaseJson json;
       parentPath = setPointType;
       json.set(setPointName, atof(value));
@@ -1338,8 +1334,7 @@ void updateSetPoint(const char *setPointType, const char *setPointName, char *va
       menu.lcd->println("not updated.");
 
       delay(5000);
-      // menu.lcd->setCursor(0, 0);
-      // menu.lcd->println("");
+
       menu.show();
     }
   }
